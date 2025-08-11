@@ -4,4 +4,6 @@ google-auth
 pandas
 numpy
 plotly
+oauth2client
+
 
