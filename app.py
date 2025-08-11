@@ -1,8 +1,6 @@
 # digital_carbon_footprint_with_gsheets.py
 import streamlit as st
 import pandas as pd
-import random
-import numpy as np
 from datetime import datetime
 
 # Google Sheets libs
@@ -14,9 +12,7 @@ st.set_page_config(page_title="Digital Carbon Footprint Calculator", layout="wid
 # -------------------------
 # Google Sheets config
 # -------------------------
-# Put your service account JSON in the same folder and set the filename here
 CREDS_FILE = "credentials.json"
-# Change to your desired sheet name (the script will create it if it doesn't exist)
 SHEET_NAME = "Dati CFC"
 
 GSCOPE = [
@@ -87,15 +83,16 @@ def compute_medians_from_sheet():
     return med
 
 # -------------------------
-# Your original app state + factors
+# App state + factors
 # -------------------------
-# Init session state
 if "page" not in st.session_state or st.session_state.page not in ["intro", "main", "results"]:
     st.session_state.page = "intro"
 if "role" not in st.session_state:
     st.session_state.role = ""
 if "device_inputs" not in st.session_state:
     st.session_state.device_inputs = {}
+if "device_list" not in st.session_state:
+    st.session_state.device_list = []
 if "results" not in st.session_state:
     st.session_state.results = {}
 
@@ -164,34 +161,37 @@ DAYS = 250  # Typical number of work/study days per year
 # -------------------------
 # Pages
 # -------------------------
+def show_intro():
+    st.title("Welcome to the Digital Carbon Footprint Calculator")
+    st.write(
+        "This app estimates your digital carbon footprint based on your devices, digital activities, and AI tool usage."
+    )
+    role = st.selectbox("Please select your role:", ["Student", "Professor", "Staff Member"])
+    st.session_state.role = role
+    if st.button("Start"):
+        st.session_state.page = "main"
+        st.experimental_rerun()
+
 def show_main():
     st.title("☁️ Digital Usage Form")
 
     # === DEVICES ===
     st.header("💻 Devices")
     st.markdown("""
-Choose the digital devices you currently use, and for each one, provide a few details about how you use it and what you do when it's no longer needed.
-- **Years of use**: Estimate how many years you've used (or plan to use) the device in total.
-- **Condition**:
-  - *New*: You were the first owner of the device when it was purchased.
-  - *Used*: The device was previously owned or refurbished when you started using it.
-- **Ownership**:
-  - *Personal*: You’re the only one who regularly uses the device.
-  - *Shared*: The device is used by other people in your household or team.
-- **End-of-life behavior**: What do you usually do with your devices when you stop using them? (e.g. recycle, donate, store in a drawer...)
+    Choose the digital devices you currently use, and for each one, provide a few details about how you use it and what you do when it's no longer needed.
+
+    - **Years of use**: Estimate how many years you've used (or plan to use) the device in total.
+    - **Condition**:
+      - *New*: You were the first owner of the device when it was purchased.
+      - *Used*: The device was previously owned or refurbished when you started using it.
+    - **Ownership**:
+      - *Personal*: You’re the only one who regularly uses the device.
+      - *Shared*: The device is used by other people in your household or team.
+    - **End-of-life behavior**: What do you usually do with your devices when you stop using them? (e.g. recycle, donate, store in a drawer...)
     """)
 
-    if "device_list" not in st.session_state:
-        st.session_state.device_list = []
-
-    # Always show current device list
-    if st.session_state.device_list:
-        st.info(f"📋 Current devices: {[d.rsplit('_', 1)[0] for d in st.session_state.device_list]}")
-    else:
-        st.info("📋 No devices added yet.")
-
-    device_to_add = st.selectbox("Select a device and click 'Add Device', repeat for all the devices you own", list(device_ef.keys()))
-
+    # Device list management
+    device_to_add = st.selectbox("Select a device to add:", list(device_ef.keys()))
     if st.button("➕ Add Device"):
         count = sum(d.startswith(device_to_add) for d in st.session_state.device_list)
         new_id = f"{device_to_add}_{count}"
@@ -203,279 +203,208 @@ Choose the digital devices you currently use, and for each one, provide a few de
             "eol": "I bring it to a certified e-waste collection center"
         }
         st.success(f"✅ '{device_to_add}' has been added successfully!")
-        st.info(f"📋 Updated device list: {[d.rsplit('_', 1)[0] for d in st.session_state.device_list]}")
 
-    total_prod, total_eol = 0, 0
-    # iterate devices and show fields
-    for device_id in st.session_state.device_list:
-        base_device = device_id.rsplit("_", 1)[0]
-        prev = st.session_state.device_inputs[device_id]
+    if st.session_state.device_list:
+        st.info(f"Added devices ({len(st.session_state.device_list)}):")
+        for dev_key in st.session_state.device_list:
+            device_name = dev_key.rsplit("_", 1)[0]
+            st.markdown(f"---\n**{device_name}**")
+            c1, c2, c3, c4 = st.columns([1, 1, 1, 3])
+            with c1:
+                years = st.number_input(
+                    label="Years of use",
+                    min_value=0.1,
+                    max_value=10.0,
+                    value=st.session_state.device_inputs[dev_key]["years"],
+                    key=f"years_{dev_key}",
+                    step=0.1,
+                    format="%.1f"
+                )
+            with c2:
+                used = st.selectbox(
+                    label="Condition",
+                    options=["New", "Used"],
+                    index=0 if st.session_state.device_inputs[dev_key]["used"] == "New" else 1,
+                    key=f"used_{dev_key}"
+                )
+            with c3:
+                shared = st.selectbox(
+                    label="Ownership",
+                    options=["Personal", "Shared"],
+                    index=0 if st.session_state.device_inputs[dev_key]["shared"] == "Personal" else 1,
+                    key=f"shared_{dev_key}"
+                )
+            with c4:
+                eol = st.selectbox(
+                    label="End-of-life behavior",
+                    options=list(eol_modifier.keys()),
+                    index=list(eol_modifier.keys()).index(st.session_state.device_inputs[dev_key]["eol"]),
+                    key=f"eol_{dev_key}"
+                )
+            # Update session state for this device
+            st.session_state.device_inputs[dev_key]["years"] = years
+            st.session_state.device_inputs[dev_key]["used"] = used
+            st.session_state.device_inputs[dev_key]["shared"] = shared
+            st.session_state.device_inputs[dev_key]["eol"] = eol
 
-        st.subheader(base_device)
-        col1, col2, col3, col4 = st.columns(4)
-        years = col1.number_input("Years of use", 0.5, 20.0, value=float(prev["years"]), step=0.5, format="%.1f", key=f"{device_id}_years")
-        used = col2.selectbox("Condition", ["New", "Used"], index=["New", "Used"].index(prev["used"]), key=f"{device_id}_used")
-        shared = col3.selectbox("Ownership", ["Personal", "Shared"], index=["Personal", "Shared"].index(prev["shared"]), key=f"{device_id}_shared")
-        eol = col4.selectbox("End-of-life behavior", list(eol_modifier.keys()), index=list(eol_modifier.keys()).index(prev["eol"]), key=f"{device_id}_eol")
+        # Button to clear all devices
+        if st.button("🗑️ Remove all devices"):
+            st.session_state.device_list = []
+            st.session_state.device_inputs = {}
 
-        st.session_state.device_inputs[device_id] = {
-            "years": years,
-            "used": used,
-            "shared": shared,
-            "eol": eol
-        }
-
-        if st.button(f"🗑 Remove {base_device}", key=f"remove_{device_id}"):
-            st.session_state.device_list.remove(device_id)
-            st.session_state.device_inputs.pop(device_id, None)
-            st.warning(f"🗑 '{base_device}' has been removed successfully.")
-            st.info(f"📋 Updated device list: {[d.rsplit('_', 1)[0] for d in st.session_state.device_list]}")
-            st.rerun()
-
-        impact = device_ef[base_device]
-        if used == "New" and shared == "Personal":
-            adj_years = years
-        elif used == "Used" and shared == "Personal":
-            adj_years = years + (years / 2)
-        elif used == "New" and shared == "Shared":
-            adj_years = years * 3
-        else:
-            adj_years = years * 4.5
-
-        eol_mod = eol_modifier[eol]
-        prod_per_year = impact / adj_years
-        eol_impact = (impact * eol_mod) / adj_years
-        total_prod += prod_per_year
-        total_eol += eol_impact
-
-        st.markdown(f"📊 **Production**: {prod_per_year:.2f} kg CO₂e/year &nbsp;&nbsp;&nbsp; **End-of-life**: {eol_impact:.2f} kg CO₂e/year")
+    else:
+        st.info("No devices added yet. Please add at least one device.")
 
     # === DIGITAL ACTIVITIES ===
-    st.header("🎓 Digital Activities")
-    st.markdown("""
-Estimate how many hours per day you spend on each activity during a typical 8-hour study or work day.
-You may exceed 8 hours if multitasking (e.g., watching a lecture while writing notes).
-    """)
+    st.header("📱 Digital Activities")
 
     role = st.session_state.role
-    ore_dict = {}
-    digital_total = 0
-    # avoid KeyError if role not selected yet
-    if role not in activity_factors:
-        st.warning("Please go back and select your role in the Intro page.")
-        return
+    if role in activity_factors:
+        act_factors = activity_factors[role]
+        st.write(f"Select how many hours you typically spend on each digital activity **per day**.")
+        st.write(f"Typical academic year is {DAYS} days (e.g. 250).")
 
-    for act, ef in activity_factors[role].items():
-        ore = st.number_input(f"{act} (h/day)", 0.0, 8.0, 0.0, 0.5, key=act)
-        ore_dict[act] = ore
-        digital_total += ore * ef * DAYS
-
-    st.markdown("Now tell us more about your habits related to email, cloud, printing and connectivity.")
-    email_plain = st.selectbox("Emails sent/received during a typical 8-hour day **no attachments** - do not include spam emails", ["1–3", "4–10", "11–25", "26–50", "> 50"])
-    email_attach = st.selectbox("Emails sent/received during a typical 8-hour day **with attachments** - do not include spam emails", ["1–3", "4–10", "11–25", "26–50", "> 50"])
-    emails = {"1–3": 2, "4–10": 7, "11–25": 18, "26–50": 38, "> 50": 55}
-    cloud = st.selectbox("Cloud storage you currently use **for academic or work-related files** (e.g., on iCloud, Google Drive, OneDrive)", ["<5GB", "5–20GB", "20–50GB", "50–100GB"])
-    cloud_gb = {"<5GB": 3, "5–20GB": 13, "20–50GB": 35, "50–100GB": 75}
-    wifi = st.slider("Estimate your daily Wi-Fi connection time during a typical 8-hour study or work day, including hours when you're not actively using your device (e.g., background apps, idle mode)", 0.0, 8.0, 4.0, 0.5)
-    pages = st.number_input("Number of pages you print per day for academic or work purposes", 0, 100, 0)
-    idle = st.radio("When you're not using your computer...", ["I turn it off", "I leave it on (idle mode)", "I don’t have a computer"])
-
-    mail_total = emails[email_plain] * 0.004 * DAYS + emails[email_attach] * 0.035 * DAYS + cloud_gb[cloud] * 0.01
-    wifi_total = wifi * 0.00584 * DAYS
-    print_total = pages * 0.0045 * DAYS
-
-    if idle == "I leave it on (idle mode)":
-        idle_total = DAYS * 0.0104 * 16
-    elif idle == "I turn it off":
-        idle_total = DAYS * 0.0005204 * 16
-    else:  # "I don’t have a computer"
-        idle_total = 0
-
-    digital_total += mail_total + wifi_total + print_total + idle_total
+        activity_hours = {}
+        for activity in act_factors:
+            h = st.number_input(
+                label=f"{activity} (hours/day)",
+                min_value=0.0,
+                max_value=24.0,
+                value=0.0,
+                step=0.25,
+                key=f"activity_{activity}"
+            )
+            activity_hours[activity] = h
+    else:
+        st.warning("Please select a valid role on the previous page.")
+        activity_hours = {}
 
     # === AI TOOLS ===
-    st.header("🤖 AI Tools")
-    st.markdown("Estimate how many queries you make per day for each AI-powered task.")
-    ai_total = 0
-    cols = st.columns(2)
-    for i, (task, ef) in enumerate(ai_factors.items()):
-        with cols[i % 2]:
-            q = st.number_input(f"{task} (queries/day)", 0, 100, 0, key=task)
-            ai_total += q * ef * DAYS
+    st.header("🤖 AI Tools Usage")
 
-    # === FINAL BUTTON ===
-    if st.button("🌍 Discover Your Digital Carbon Footprint!"):
-        # prepare results
+    st.write("Select which AI-related tasks you perform and how many times per day you perform each task.")
+
+    ai_counts = {}
+    for task in ai_factors:
+        cnt = st.number_input(
+            label=f"{task} (times/day)",
+            min_value=0,
+            max_value=1000,
+            value=0,
+            step=1,
+            key=f"ai_{task}"
+        )
+        ai_counts[task] = cnt
+
+    # Calculate footprint button
+    if st.button("Calculate Carbon Footprint"):
+        # 1) Calculate Devices emissions per device
+        device_emissions_total = 0
+        for dev_key in st.session_state.device_list:
+            device_name = dev_key.rsplit("_", 1)[0]
+            info = st.session_state.device_inputs.get(dev_key, {})
+            years = float(info.get("years", 1))
+            used = info.get("used", "New")
+            shared = info.get("shared", "Personal")
+            eol = info.get("eol", "I bring it to a certified e-waste collection center")
+
+            ef = device_ef.get(device_name, 0)
+            years_modifier = 1 if used == "New" else 0.7
+            shared_modifier = 1 if shared == "Personal" else 0.5
+            eol_mod = eol_modifier.get(eol, 0)
+
+            dev_emission = (ef * years_modifier * years * shared_modifier) + eol_mod
+            device_emissions_total += dev_emission
+
+        # 2) Calculate Digital Activities emissions
+        digital_activities_emissions = 0
+        for act, h in activity_hours.items():
+            factor = activity_factors.get(role, {}).get(act, 0)
+            # Multiply by hours per day * DAYS per year * factor
+            digital_activities_emissions += h * DAYS * factor
+
+        # 3) Calculate AI tools emissions
+        ai_emissions = 0
+        for task, cnt in ai_counts.items():
+            factor = ai_factors.get(task, 0)
+            ai_emissions += cnt * factor * DAYS  # count times/day * factor * days/year
+
+        total_emissions = device_emissions_total + digital_activities_emissions + ai_emissions
+
         st.session_state.results = {
-            "Devices": total_prod,
-            "E-Waste": total_eol,
-            "Digital Activities": digital_total,
-            "AI Tools": ai_total
+            "Total Emissions": total_emissions,
+            "Devices Emissions": device_emissions_total,
+            "Digital Activities Emissions": digital_activities_emissions,
+            "AI Tools Emissions": ai_emissions
         }
 
-        # attempt to append to Google Sheets
-        total_emissions = sum(st.session_state.results.values())
+        # Append to Google Sheets
         try:
-            append_results_to_gsheet(total_emissions, total_prod, digital_total, ai_total)
-            st.success("✔️ Your results were saved to the community sheet.")
+            append_results_to_gsheet(
+                total_emissions,
+                device_emissions_total,
+                digital_activities_emissions,
+                ai_emissions
+            )
+            st.success("Your data has been saved successfully!")
         except Exception as e:
-            # do not crash — show friendly message and continue
-            st.warning(f"Could not save results to Google Sheets: {e}")
+            st.error(f"Failed to save data to Google Sheets: {e}")
 
         st.session_state.page = "results"
-        st.rerun()
-
-
-def show_intro():
-    st.title("📱 Digital Carbon Footprint Calculator")
-    st.markdown("""
-Welcome to the **Digital Carbon Footprint Calculator**, a tool developed within the *Green DiLT* project to raise awareness about the hidden environmental impact of digital habits in academia.
-This calculator is tailored for **university students, professors, and staff members**, helping you estimate your CO₂e emissions from everyday digital activities — often overlooked, but increasingly relevant.
----
-👉 Select your role to begin:
-    """)
-    st.session_state.role = st.selectbox(
-        "What is your role in academia?",
-        ["", "Student", "Professor", "Staff Member"]
-    )
-    if st.button("➡️ Start Calculation"):
-        if st.session_state.role:
-            st.session_state.page = "main"
-            st.rerun()
-        else:
-            st.warning("Please select your role before continuing.")
-
+        st.experimental_rerun()
 
 def show_results():
-    st.title("🌍 Your Digital Carbon Footprint")
-    res = st.session_state.results
-    total = sum(res.values())
-    st.metric("🌱 Total CO₂e", f"{total:.0f} kg/year")
-    st.divider()
-    st.metric("💻 Devices", f"{res['Devices']:.2f} kg")
-    st.metric("🗑️ E-Waste", f"{res['E-Waste']:.2f} kg")
-    st.metric("📡 Digital Activities", f"{res['Digital Activities']:.2f} kg")
-    st.metric("🤖 AI Tools", f"{res['AI Tools']:.2f} kg")
-    st.divider()
+    st.title("📊 Your Digital Carbon Footprint Results")
 
-    st.subheader("📊 Breakdown by Category")
-    df_plot = pd.DataFrame({
-        "Category": ["Devices", "Digital Activities", "Artificial Intelligence", "E-Waste"],
-        "CO₂e (kg)": [res["Devices"], res["Digital Activities"], res["AI Tools"], res["E-Waste"]]
-    })
-    st.bar_chart(df_plot.set_index("Category"))
+    results = st.session_state.results
+    if not results:
+        st.warning("No results found. Please fill in your data first.")
+        if st.button("Go back to input form"):
+            st.session_state.page = "main"
+            st.experimental_rerun()
+        return
 
-    # Add medians/comparison from Google Sheets
-    try:
-        medians = compute_medians_from_sheet()
-    except Exception as e:
-        medians = None
-        st.warning(f"Could not compute community medians: {e}")
+    total = results["Total Emissions"]
+    devices = results["Devices Emissions"]
+    activities = results["Digital Activities Emissions"]
+    ai_tools = results["AI Tools Emissions"]
 
+    st.metric(label="Total Emissions (kg CO₂ eq/year)", value=f"{total:.2f}")
+    st.metric(label="Devices Emissions (kg CO₂ eq/year)", value=f"{devices:.2f}")
+    st.metric(label="Digital Activities Emissions (kg CO₂ eq/year)", value=f"{activities:.2f}")
+    st.metric(label="AI Tools Emissions (kg CO₂ eq/year)", value=f"{ai_tools:.2f}")
+
+    # Show comparison with median from Google Sheets data
+    medians = compute_medians_from_sheet()
     if medians:
-        st.subheader("📈 Comparison with Community Median")
-        comp_df = pd.DataFrame({
-            "Category": ["Total", "Devices", "Digital Activities", "AI Tools"],
-            "Your Emissions (kg)": [total, res["Devices"], res["Digital Activities"], res["AI Tools"]],
-            "Community Median (kg)": [
-                medians.get("Total Emissions", np.nan),
-                medians.get("Devices Emissions", np.nan),
-                medians.get("Digital Activities Emissions", np.nan),
-                medians.get("AI Tools Emissions", np.nan)
-            ]
-        })
+        st.write("---")
+        st.subheader("Comparison with other users (Median values)")
 
-        # percent difference column (handle zero median)
-        def pct_diff(row):
-            m = row["Community Median (kg)"]
-            y = row["Your Emissions (kg)"]
-            if pd.isna(m) or m == 0:
-                return None
-            return 100.0 * (y - m) / m
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Median Total Emissions", f"{medians['Total Emissions']:.2f}")
+            st.metric("Median Devices Emissions", f"{medians['Devices Emissions']:.2f}")
+        with col2:
+            st.metric("Median Digital Activities Emissions", f"{medians['Digital Activities Emissions']:.2f}")
+            st.metric("Median AI Tools Emissions", f"{medians['AI Tools Emissions']:.2f}")
 
-        comp_df["% vs median"] = comp_df.apply(pct_diff, axis=1).map(lambda v: f"{v:.1f}%" if v is not None else "n/a")
-        st.table(comp_df.set_index("Category"))
-
-        # Short summary message for total
-        median_total = medians.get("Total Emissions", None)
-        if median_total and median_total > 0:
-            diff = total - median_total
-            pct = (diff / median_total) * 100
-            if diff > 0:
-                st.warning(f"⚠️ Your total emissions are {abs(diff):.1f} kg ({pct:.0f}%) higher than the community median.")
-            elif diff < 0:
-                st.success(f"✅ Your total emissions are {abs(diff):.1f} kg ({abs(pct):.0f}%) lower than the community median.")
-            else:
-                st.info("You're exactly at the community median. Nice!")
     else:
-        st.info("No community data available yet to compute medians.")
+        st.info("No other users' data available for comparison yet.")
 
-    most_impact_cat = df_plot.sort_values("CO₂e (kg)", ascending=False).iloc[0]["Category"]
+    if st.button("Calculate Again"):
+        st.session_state.page = "main"
+        st.experimental_rerun()
 
-    detailed_tips = {
-        "Devices": [
-            "**Turn off devices when not in use** - Even in standby mode, they consume energy. Powering them off saves electricity and extends their lifespan.",
-            "**Update software regularly** - This enhances efficiency and performance, often reducing energy consumption.",
-            "**Activate power-saving settings, reduce screen brightness and enable dark mode** – This lowers energy use.",
-            "**Choose accessories made from recycled or sustainable materials** - This minimizes the environmental impact of your tech choices."
-        ],
-        "Digital Activities": [
-            "**Use your internet mindfully** - Close unused apps, avoid sending large attachments, and turn off video during calls when not essential.",
-            "**Declutter your digital space** - Regularly delete unnecessary files, empty trash and spam folders, and clean up cloud storage to reduce digital pollution.",
-            "**Share links instead of attachments** - For example, link to a document on OneDrive or Google Drive instead of attaching it in an email.",
-            "**Use instant messaging for short, urgent messages** - It's more efficient than email for quick communications."
-        ],
-        "Artificial Intelligence": [
-            "**Use search engines for simple tasks** - They consume far less energy than AI tools.",
-            "**Disable AI-generated results in search engines** - (e.g., on Bing: go to Settings > Search > Uncheck 'Include AI-powered answers' or similar option)",
-            "**Prefer smaller AI models when possible** - For basic tasks, use lighter versions like GPT-4o-mini instead of more energy-intensive models.",
-            "**Be concise in AI prompts and require concise answers** - short inputs and outputs require less processing"
-        ],
-        "E-Waste": [
-            "**Avoid upgrading devices every year** - Extending device lifespan significantly reduces environmental impact.",
-            "**Repair instead of replacing** - Fix broken electronics whenever possible to avoid unnecessary waste.",
-            "**Consider buying refurbished devices** - They’re often as good as new, but with a much lower environmental footprint.",
-            "**Recycle unused electronics properly** - Don’t store old devices at home: e-waste contains polluting and valuable materials that need specialized treatment."
-        ]
-    }
+# -------------------------
+# Main routing
+# -------------------------
+def main():
+    if st.session_state.page == "intro":
+        show_intro()
+    elif st.session_state.page == "main":
+        show_main()
+    elif st.session_state.page == "results":
+        show_results()
 
-    st.subheader(f"💡 Your biggest impact comes from: **{most_impact_cat}**")
-    for tip in detailed_tips[most_impact_cat]:
-        st.markdown(f"- {tip}")
-
-    # Extra tips from other categories
-    other_categories = [cat for cat in detailed_tips if cat != most_impact_cat]
-    extra_tips = [random.choice(detailed_tips[cat]) for cat in random.sample(other_categories, 3)]
-    st.subheader("🌍 Some Extra Tips:")
-    for tip in extra_tips:
-        st.markdown(f"- {tip}")
-
-    st.divider()
-    st.subheader("♻️ With the same emissions, you could…")
-    burger_eq = total / 4.6
-    led_days_eq = (total / 0.256) / 24
-    car_km_eq = total / 0.17
-    st.markdown(f"""
-- 🍔 **Produce ~{burger_eq:.0f} beef burgers**
-- 💡 **Keep 100 LED bulbs on for ~{led_days_eq:.0f} days**
-- 🚗 **Drive a gasoline car for ~{car_km_eq:.0f} km**
-    """)
-    st.markdown("### 🌱 You did it! Just by completing this tool, you're already part of the solution.")
-    st.write("Digital emissions are invisible but not insignificant. Awareness is the first step toward change!")
-
-    if st.button("↺ Restart"):
-        st.session_state.clear()
-        st.session_state.page = "intro"
-        st.rerun()
-
-
-# === PAGE NAVIGATION ===
-if st.session_state.page == "intro":
-    show_intro()
-elif st.session_state.page == "main":
-    show_main()
-elif st.session_state.page == "results":
-    show_results()
-
-
- 
+if __name__ == "__main__":
+    main()
